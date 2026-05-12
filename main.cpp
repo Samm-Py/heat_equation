@@ -54,6 +54,16 @@ int main(int argc, char* argv[]) {
         for (int step = 0; step <= num_steps; ++step) {
             double t = step * dt;
 
+            // VTK Output: Output current state u^n at time t
+            if (step % vtk_interval == 0) {
+                std::cout << "Step " << step << " / " << num_steps << " (t = " << t << ")" << std::endl;
+                Kokkos::deep_copy(u_host, u);
+                std::string filename = "output_" + std::to_string(step) + ".vtk";
+                export_vtk(filename, N, N, N, mesh.dx, mesh.dy, mesh.dz, u_host);
+            }
+
+            if (step == num_steps) break;
+
             // Source position: moving in a circle in the XY plane at z = 1.0
             double xc = 0.5 + 0.3 * std::cos(2.0 * M_PI * t/total_time);
             double yc = 0.5 + 0.3 * std::sin(2.0 * M_PI * t/total_time);
@@ -81,14 +91,6 @@ int main(int argc, char* argv[]) {
 
             // Advance time
             Kokkos::deep_copy(u, u_new);
-
-            // VTK Output
-            if (step % vtk_interval == 0) {
-                std::cout << "Step " << step << " / " << num_steps << " (t = " << t << ")" << std::endl;
-                Kokkos::deep_copy(u_host, u);
-                std::string filename = "output_" + std::to_string(step) + ".vtk";
-                export_vtk(filename, N, N, N, mesh.dx, mesh.dy, mesh.dz, u_host);
-            }
         }
     }
     Kokkos::finalize();

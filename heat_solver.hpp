@@ -34,14 +34,14 @@ struct Mesh {
         int ez = e_idx / ((Nx - 1) * (Ny - 1));
 
         int n0 = ex + ey * Nx + ez * Nx * Ny;
-        nodes[0] = n0;
-        nodes[1] = n0 + 1;
-        nodes[2] = n0 + 1 + Nx;
-        nodes[3] = n0 + Nx;
-        nodes[4] = n0 + Nx * Ny;
-        nodes[5] = n0 + 1 + Nx * Ny;
-        nodes[6] = n0 + 1 + Nx + Nx * Ny;
-        nodes[7] = n0 + Nx + Nx * Ny;
+        nodes[0] = n0;                      // (0,0,0)
+        nodes[1] = n0 + 1;                  // (1,0,0)
+        nodes[2] = n0 + Nx;                 // (0,1,0)
+        nodes[3] = n0 + 1 + Nx;             // (1,1,0)
+        nodes[4] = n0 + Nx * Ny;            // (0,0,1)
+        nodes[5] = n0 + 1 + Nx * Ny;        // (1,0,1)
+        nodes[6] = n0 + Nx + Nx * Ny;       // (0,1,1)
+        nodes[7] = n0 + 1 + Nx + Nx * Ny;   // (1,1,1)
     }
 };
 
