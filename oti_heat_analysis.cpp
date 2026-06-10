@@ -503,13 +503,17 @@ int main(int argc, char* argv[])
         RunResult<Coeff> base(Mesh(config.N, config.N, config.N, config.L, config.L, config.L));
         timings.push_back({"base_scalar_solve", 0.0});
         {
-            ScopedTimer timer(timings.back().seconds);
-            base = run_scalar_variant(
-                config,
-                static_cast<Coeff>(config.alpha0),
-                static_cast<Coeff>(config.amplitude0),
-                static_cast<Coeff>(config.sigma0),
-                fixed_dt);
+            Kokkos::Profiling::pushRegion("base_scalar_solve");
+            {
+                ScopedTimer timer(timings.back().seconds);
+                base = run_scalar_variant(
+                    config,
+                    static_cast<Coeff>(config.alpha0),
+                    static_cast<Coeff>(config.amplitude0),
+                    static_cast<Coeff>(config.sigma0),
+                    fixed_dt);
+            }
+            Kokkos::Profiling::popRegion();
         }
         std::cout << "Base " << precision_name() << " solve wall time: "
                   << timings.back().seconds << " s\n";
@@ -521,8 +525,12 @@ int main(int argc, char* argv[])
         RunResult<OTI> oti_result(Mesh(config.N, config.N, config.N, config.L, config.L, config.L));
         timings.push_back({"oti_solve", 0.0});
         {
-            ScopedTimer timer(timings.back().seconds);
-            oti_result = run_heat_solver<OTI>(config, alpha, amplitude, sigma, fixed_dt);
+            Kokkos::Profiling::pushRegion("oti_solve");
+            {
+                ScopedTimer timer(timings.back().seconds);
+                oti_result = run_heat_solver<OTI>(config, alpha, amplitude, sigma, fixed_dt);
+            }
+            Kokkos::Profiling::popRegion();
         }
         std::cout << "OTI " << precision_name() << " solve wall time: "
                   << timings.back().seconds << " s\n";

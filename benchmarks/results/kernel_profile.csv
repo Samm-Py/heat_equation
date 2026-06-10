@@ -1,0 +1,13 @@
+device,precision,kernel,base_s,oti_s,oti_over_base,calls
+cpu,double,ComputeStiffnessForce,2.45,4.45,1.816326530612245,1350
+cpu,double,ComputeSource,0.568,1.69,2.9753521126760565,1350
+cpu,double,UpdateTemperature,0.156,2.18,13.974358974358976,1350
+cpu,float,ComputeStiffnessForce,2.46,4.25,1.7276422764227644,1350
+cpu,float,ComputeSource,0.719,1.29,1.7941585535465927,1350
+cpu,float,UpdateTemperature,0.0989,1.05,10.616784630940344,1350
+gpu,double,ComputeStiffnessForce,0.481,1.9,3.95010395010395,1350
+gpu,double,ComputeSource,0.264,0.394,1.4924242424242424,1350
+gpu,double,UpdateTemperature,0.128,0.306,2.390625,1350
+gpu,float,ComputeStiffnessForce,0.154,0.977,6.3441558441558445,1350
+gpu,float,ComputeSource,0.0646,0.0851,1.3173374613003095,1350
+gpu,float,UpdateTemperature,0.0812,0.174,2.142857142857143,1350
