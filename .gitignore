@@ -1,0 +1,17 @@
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+
+oti_analysis_output*/
+*.vtk
+output_*.vtk
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+*.log
