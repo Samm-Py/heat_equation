@@ -28,3 +28,12 @@ endfunction()
 add_oti_heat_analysis_target(oti_heat_analysis double)
 add_oti_heat_analysis_target(oti_heat_analysis_double double)
 add_oti_heat_analysis_target(oti_heat_analysis_float float)
+
+# Device-side otinum arithmetic throughput microbenchmark. Runs on whatever
+# Kokkos backend the build targets; point CPP_OTI_LIB_INCLUDE_DIR at different
+# header trees to compare an otinum baseline against a candidate.
+add_executable(oti_kernel_microbench benchmarks/oti_kernel_microbench.cpp)
+target_include_directories(oti_kernel_microbench PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})
+target_compile_definitions(oti_kernel_microbench PRIVATE OTI_ENABLE_KOKKOS)
+target_link_libraries(oti_kernel_microbench Kokkos::kokkos)
+target_compile_options(oti_kernel_microbench PRIVATE -O3)
