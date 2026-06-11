@@ -300,6 +300,7 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
     compute_lumped_mass(mesh, M_lumped);
 
     Scalar inv_two_sigma2 = Scalar(1) / (Scalar(2) * sigma * sigma);
+    Scalar neg_alpha = -alpha;
     Real dt = static_cast<Real>(fixed_dt);
     Real total_time = static_cast<Real>(config.total_time);
 
@@ -341,8 +342,13 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
         compute_stiffness_force(mesh, device_K, u, Ku);
 
         Kokkos::parallel_for("UpdateTemperature", mesh.num_nodes, KOKKOS_LAMBDA(int n_idx) {
-            u_new(n_idx) =
-                u(n_idx) + Scalar(dt) * (Real(1) / M_lumped(n_idx)) * (f(n_idx) - alpha * Ku(n_idx));
+            // Fused form of  u + dt*(1/M) * (f - alpha*Ku).  fma_into avoids
+            // the alpha*Ku temporary, and folding dt into a plain Real scale
+            // skips the jet-lift of dt (a full jet x jet product per node).
+            Scalar acc = f(n_idx);
+            oti::fma_into(acc, neg_alpha, Ku(n_idx));
+            Real scale = dt * (Real(1) / M_lumped(n_idx));
+            u_new(n_idx) = oti::scale_add(u(n_idx), scale, acc);
         });
 
         std::swap(u, u_new);
