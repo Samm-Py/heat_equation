@@ -366,6 +366,154 @@ RunResult<Coeff> run_scalar_variant(AnalysisConfig const& config,
     return run_heat_solver<Coeff>(config, alpha, amplitude, sigma, fixed_dt);
 }
 
+#ifdef OTI_HEAT_SOA
+
+// Coefficient-major (structure-of-arrays) variant of the OTI solve, selected
+// by building with -DOTI_HEAT_SOA. Only where the jet fields' bytes live
+// changes: every kernel still gathers each node's jet into registers, runs
+// the identical arithmetic in the identical order, and scatters it back, so
+// the results are bit-identical to the default layout. The base scalar solve
+// is untouched, which keeps the OTI/base wall-time ratio comparable across
+// the two builds.
+
+using OtiSpan = oti::soa_span<OTI::nvars, OTI::order, Coeff>;
+
+// Adapters that let the unmodified compute_stiffness_force template read u
+// and write R through the coefficient-major spans. The kernel only ever
+// evaluates u(i) as a value and assigns a computed jet to R(i), so a
+// by-value gather and a store-on-assignment proxy cover its whole usage.
+struct SoaReadView {
+    OtiSpan s;
+
+    KOKKOS_INLINE_FUNCTION OTI operator()(int i) const
+    {
+        return s.load(static_cast<std::size_t>(i));
+    }
+};
+
+struct SoaStoreRef {
+    OtiSpan s;
+    int i;
+
+    KOKKOS_INLINE_FUNCTION void operator=(OTI const& value) const
+    {
+        s.store(static_cast<std::size_t>(i), value);
+    }
+};
+
+struct SoaWriteView {
+    using non_const_value_type = OTI;
+
+    OtiSpan s;
+
+    KOKKOS_INLINE_FUNCTION SoaStoreRef operator()(int i) const
+    {
+        return {s, i};
+    }
+};
+
+RunResult<OTI> run_heat_solver_soa(AnalysisConfig const& config,
+                                   OTI alpha,
+                                   OTI amplitude,
+                                   OTI sigma,
+                                   double fixed_dt)
+{
+    using Real = scalar_value_t<OTI>;
+    constexpr Real pi = static_cast<Real>(3.14159265358979323846);
+
+    Mesh mesh(config.N, config.N, config.N, config.L, config.L, config.L);
+    RunResult<OTI> result(mesh);
+    result.dt = fixed_dt;
+    result.num_steps = compute_num_steps(config.total_time, fixed_dt);
+    result.snapshot_steps = make_snapshot_steps(result.num_steps, config.num_snapshots);
+
+    std::size_t const n = static_cast<std::size_t>(mesh.num_nodes);
+    Kokkos::View<Coeff*> u_buf("temperature_coeffs", OtiSpan::required_size(n));
+    Kokkos::View<Coeff*> u_new_buf("temperature_next_coeffs", OtiSpan::required_size(n));
+    Kokkos::View<Real*> M_lumped("mass_lumped", mesh.num_nodes);
+    Kokkos::View<Coeff*> f_buf("source_coeffs", OtiSpan::required_size(n));
+    Kokkos::View<Coeff*> Ku_buf("stiffness_coeffs", OtiSpan::required_size(n));
+
+    Real h_K_local[8][8];
+    compute_local_stiffness(
+        static_cast<Real>(mesh.dx), static_cast<Real>(mesh.dy), static_cast<Real>(mesh.dz), h_K_local);
+    Kokkos::View<Real[8][8], Kokkos::HostSpace> host_K("host_K");
+    for (int i = 0; i < 8; ++i) {
+        for (int j = 0; j < 8; ++j) {
+            host_K(i, j) = h_K_local[i][j];
+        }
+    }
+    auto device_K = Kokkos::create_mirror_view_and_copy(Kokkos::DefaultExecutionSpace(), host_K);
+
+    Kokkos::deep_copy(u_buf, Coeff(0));
+    compute_lumped_mass(mesh, M_lumped);
+
+    OTI inv_two_sigma2 = OTI(1) / (OTI(2) * sigma * sigma);
+    OTI neg_alpha = -alpha;
+    Real dt = static_cast<Real>(fixed_dt);
+    Real total_time = static_cast<Real>(config.total_time);
+
+    auto u_host = Kokkos::create_mirror_view(u_buf);
+    std::size_t next_snapshot = 0;
+
+    for (int step = 0; step <= result.num_steps; ++step) {
+        Real t = static_cast<Real>(step) * dt;
+
+        if (next_snapshot < result.snapshot_steps.size() &&
+            step == result.snapshot_steps[next_snapshot]) {
+            Kokkos::deep_copy(u_host, u_buf);
+            OtiSpan const host_span(u_host.data(), n);
+            std::vector<OTI> snapshot(n);
+            for (std::size_t idx = 0; idx < n; ++idx) {
+                snapshot[idx] = host_span.load(idx);
+            }
+            result.snapshot_times.push_back(t);
+            result.snapshots.push_back(std::move(snapshot));
+            ++next_snapshot;
+        }
+
+        if (step == result.num_steps) {
+            break;
+        }
+
+        // The spans wrap raw data pointers, so they are rebuilt each step:
+        // std::swap below exchanges which buffer u and u_new refer to.
+        OtiSpan const u_s(u_buf.data(), n);
+        OtiSpan const u_new_s(u_new_buf.data(), n);
+        OtiSpan const f_s(f_buf.data(), n);
+        OtiSpan const Ku_s(Ku_buf.data(), n);
+
+        Real xc = Real(0.5) + Real(0.3) * Kokkos::cos(Real(2) * pi * t / total_time);
+        Real yc = Real(0.5) + Real(0.3) * Kokkos::sin(Real(2) * pi * t / total_time);
+        Real zc = Real(1);
+
+        Kokkos::parallel_for("ComputeSource", mesh.num_nodes, KOKKOS_LAMBDA(int n_idx) {
+            Real x, y, z;
+            mesh.get_node_coords(n_idx, x, y, z);
+            Real r2 = (x - xc) * (x - xc) + (y - yc) * (y - yc) + (z - zc) * (z - zc);
+            OTI exponent = OTI(-r2) * inv_two_sigma2;
+            OTI val = amplitude * scalar_exp(exponent);
+            f_s.store(static_cast<std::size_t>(n_idx), val * M_lumped(n_idx));
+        });
+
+        compute_stiffness_force(mesh, device_K, SoaReadView{u_s}, SoaWriteView{Ku_s});
+
+        Kokkos::parallel_for("UpdateTemperature", mesh.num_nodes, KOKKOS_LAMBDA(int n_idx) {
+            std::size_t const i = static_cast<std::size_t>(n_idx);
+            OTI acc = f_s.load(i);
+            oti::fma_into(acc, neg_alpha, Ku_s.load(i));
+            Real scale = dt * (Real(1) / M_lumped(n_idx));
+            u_new_s.store(i, oti::scale_add(u_s.load(i), scale, acc));
+        });
+
+        std::swap(u_buf, u_new_buf);
+    }
+
+    return result;
+}
+
+#endif // OTI_HEAT_SOA
+
 void write_slice_csv(AnalysisConfig const& config,
                      RunResult<Coeff> const& base,
                      RunResult<OTI> const& oti_result,
@@ -487,9 +635,15 @@ int main(int argc, char* argv[])
         double fixed_dt = 0.8 * (mesh.dx * mesh.dx) / (6.0 * config.alpha0);
         int num_steps = compute_num_steps(config.total_time, fixed_dt);
 
+#ifdef OTI_HEAT_SOA
+        constexpr char const* oti_storage = "soa";
+#else
+        constexpr char const* oti_storage = "aos";
+#endif
         std::cout << "Configuration: N=" << config.N
                   << ", nodes=" << mesh.num_nodes
                   << ", elements=" << mesh.num_elements
+                  << ", oti_storage=" << oti_storage
                   << ", coefficient_precision=" << precision_name()
                   << ", dt=" << fixed_dt
                   << ", steps=" << num_steps
@@ -534,7 +688,11 @@ int main(int argc, char* argv[])
             Kokkos::Profiling::pushRegion("oti_solve");
             {
                 ScopedTimer timer(timings.back().seconds);
+#ifdef OTI_HEAT_SOA
+                oti_result = run_heat_solver_soa(config, alpha, amplitude, sigma, fixed_dt);
+#else
                 oti_result = run_heat_solver<OTI>(config, alpha, amplitude, sigma, fixed_dt);
+#endif
             }
             Kokkos::Profiling::popRegion();
         }

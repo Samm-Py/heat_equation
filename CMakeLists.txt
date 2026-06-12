@@ -35,6 +35,13 @@ add_oti_heat_analysis_target(oti_heat_analysis double)
 add_oti_heat_analysis_target(oti_heat_analysis_double double)
 add_oti_heat_analysis_target(oti_heat_analysis_float float)
 
+# Coefficient-major (SoA) OTI storage variants for layout comparison on GPU
+# backends; the default targets and the base scalar solve are unaffected.
+add_oti_heat_analysis_target(oti_heat_analysis_soa_double double)
+target_compile_definitions(oti_heat_analysis_soa_double PRIVATE OTI_HEAT_SOA)
+add_oti_heat_analysis_target(oti_heat_analysis_soa_float float)
+target_compile_definitions(oti_heat_analysis_soa_float PRIVATE OTI_HEAT_SOA)
+
 # Device-side otinum arithmetic throughput microbenchmark. Runs on whatever
 # Kokkos backend the build targets; point CPP_OTI_LIB_INCLUDE_DIR at different
 # header trees to compare an otinum baseline against a candidate.

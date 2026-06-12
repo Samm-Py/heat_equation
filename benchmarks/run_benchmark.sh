@@ -17,10 +17,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 RESULTS_DIR="$HERE/results"
 RUN_DIR="${RUN_DIR:-/tmp/oti_bench_runs}"
-CSV="$RESULTS_DIR/benchmark_results.csv"
+CSV="${CSV_OUT:-$RESULTS_DIR/benchmark_results.csv}"
 
 CPU_BIN_PREFIX="$ROOT/build/oti_heat_analysis"
 GPU_BIN_PREFIX="$ROOT/build-cuda/oti_heat_analysis"
+
+# SWEEP_DEVICES selects which halves to run ("cpu gpu" by default).
+# GPU_VARIANT selects an alternative GPU OTI binary suffix, e.g. "_soa" for
+# the coefficient-major storage variants; the CPU binaries have no variants.
+SWEEP_DEVICES="${SWEEP_DEVICES:-cpu gpu}"
+GPU_VARIANT="${GPU_VARIANT:-}"
 
 # CPU thread pinning: use the 8 physical cores, avoid SMT contention noise.
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
@@ -82,10 +88,14 @@ sweep() { # device precision binary  N...
     done
 }
 
-sweep cpu double "${CPU_BIN_PREFIX}_double" "${CPU_NS[@]}"
-sweep cpu float  "${CPU_BIN_PREFIX}_float"  "${CPU_NS[@]}"
-sweep gpu double "${GPU_BIN_PREFIX}_double" "${GPU_NS[@]}"
-sweep gpu float  "${GPU_BIN_PREFIX}_float"  "${GPU_NS[@]}"
+case " $SWEEP_DEVICES " in *" cpu "*)
+    sweep cpu double "${CPU_BIN_PREFIX}_double" "${CPU_NS[@]}"
+    sweep cpu float  "${CPU_BIN_PREFIX}_float"  "${CPU_NS[@]}"
+;; esac
+case " $SWEEP_DEVICES " in *" gpu "*)
+    sweep gpu double "${GPU_BIN_PREFIX}${GPU_VARIANT}_double" "${GPU_NS[@]}"
+    sweep gpu float  "${GPU_BIN_PREFIX}${GPU_VARIANT}_float"  "${GPU_NS[@]}"
+;; esac
 
 echo
 echo "Done. Wrote $CSV"
