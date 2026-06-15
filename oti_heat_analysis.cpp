@@ -24,6 +24,10 @@ namespace {
 #define OTI_HEAT_COEFF_TYPE double
 #endif
 
+#ifndef OTI_HEAT_VARIANT_NAME
+#define OTI_HEAT_VARIANT_NAME "current"
+#endif
+
 using Coeff = OTI_HEAT_COEFF_TYPE;
 using OTI = oti::otinum<3, 1, Coeff>;
 
@@ -39,6 +43,7 @@ struct AnalysisConfig {
     double h_sigma = 1.0e-5;
     int num_snapshots = 5;
     bool run_finite_differences = true;
+    bool source_division_per_node = false;
     std::string output_dir = "oti_analysis_output";
 };
 
@@ -197,6 +202,8 @@ void print_usage(char const* program)
         << "  --h-amplitude VALUE   Finite-difference amplitude step, default 1e-3\n"
         << "  --h-sigma VALUE       Finite-difference sigma step, default 1e-5\n"
         << "  --snapshots VALUE     Number of evenly spaced time snapshots, default 5\n"
+        << "  --source-division MODE\n"
+        << "                        hoisted (default) or per-node\n"
         << "  --skip-fd             Skip finite-difference validation solves and slice CSV\n"
         << "  --help                Show this help\n";
 }
@@ -230,6 +237,16 @@ bool parse_command_line(int argc, char* argv[], AnalysisConfig& config)
             config.h_sigma = parse_double_arg(require_value(i, argc, argv, arg), arg);
         } else if (arg == "--snapshots") {
             config.num_snapshots = parse_int_arg(require_value(i, argc, argv, arg), arg);
+        } else if (arg == "--source-division") {
+            std::string const mode = require_value(i, argc, argv, arg);
+            if (mode == "hoisted") {
+                config.source_division_per_node = false;
+            } else if (mode == "per-node") {
+                config.source_division_per_node = true;
+            } else {
+                throw std::runtime_error(
+                    "--source-division must be 'hoisted' or 'per-node'");
+            }
         } else if (arg == "--skip-fd") {
             config.run_finite_differences = false;
         } else if (!arg.empty() && arg[0] == '-') {
@@ -301,6 +318,7 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
 
     Scalar inv_two_sigma2 = Scalar(1) / (Scalar(2) * sigma * sigma);
     Scalar neg_alpha = -alpha;
+    bool const divide_source_per_node = config.source_division_per_node;
     Real dt = static_cast<Real>(fixed_dt);
     Real total_time = static_cast<Real>(config.total_time);
 
@@ -334,7 +352,9 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
             Real x, y, z;
             mesh.get_node_coords(n_idx, x, y, z);
             Real r2 = (x - xc) * (x - xc) + (y - yc) * (y - yc) + (z - zc) * (z - zc);
-            Scalar exponent = Scalar(-r2) * inv_two_sigma2;
+            Scalar exponent = divide_source_per_node
+                ? Scalar(-r2) / (Scalar(2) * sigma * sigma)
+                : Scalar(-r2) * inv_two_sigma2;
             Scalar val = amplitude * scalar_exp(exponent);
             f(n_idx) = val * M_lumped(n_idx);
         });
@@ -342,6 +362,11 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
         compute_stiffness_force(mesh, device_K, u, Ku);
 
         Kokkos::parallel_for("UpdateTemperature", mesh.num_nodes, KOKKOS_LAMBDA(int n_idx) {
+#ifdef OTI_HEAT_OPERATOR_CHAINS
+            u_new(n_idx) =
+                u(n_idx) + Scalar(dt) * (Real(1) / M_lumped(n_idx)) *
+                               (f(n_idx) - alpha * Ku(n_idx));
+#else
             // Fused form of  u + dt*(1/M) * (f - alpha*Ku).  fma_into avoids
             // the alpha*Ku temporary, and folding dt into a plain Real scale
             // skips the jet-lift of dt (a full jet x jet product per node).
@@ -349,6 +374,7 @@ RunResult<Scalar> run_heat_solver(AnalysisConfig const& config,
             oti::fma_into(acc, neg_alpha, Ku(n_idx));
             Real scale = dt * (Real(1) / M_lumped(n_idx));
             u_new(n_idx) = oti::scale_add(u(n_idx), scale, acc);
+#endif
         });
 
         std::swap(u, u_new);
@@ -450,6 +476,7 @@ RunResult<OTI> run_heat_solver_soa(AnalysisConfig const& config,
 
     OTI inv_two_sigma2 = OTI(1) / (OTI(2) * sigma * sigma);
     OTI neg_alpha = -alpha;
+    bool const divide_source_per_node = config.source_division_per_node;
     Real dt = static_cast<Real>(fixed_dt);
     Real total_time = static_cast<Real>(config.total_time);
 
@@ -491,7 +518,9 @@ RunResult<OTI> run_heat_solver_soa(AnalysisConfig const& config,
             Real x, y, z;
             mesh.get_node_coords(n_idx, x, y, z);
             Real r2 = (x - xc) * (x - xc) + (y - yc) * (y - yc) + (z - zc) * (z - zc);
-            OTI exponent = OTI(-r2) * inv_two_sigma2;
+            OTI exponent = divide_source_per_node
+                ? OTI(-r2) / (OTI(2) * sigma * sigma)
+                : OTI(-r2) * inv_two_sigma2;
             OTI val = amplitude * scalar_exp(exponent);
             f_s.store(static_cast<std::size_t>(n_idx), val * M_lumped(n_idx));
         });
@@ -599,6 +628,10 @@ void write_metrics_csv(AnalysisConfig const& config, Mesh const& mesh, double fi
     out << "h_sigma," << config.h_sigma << '\n';
     out << "run_finite_differences," << (config.run_finite_differences ? 1 : 0) << '\n';
     out << "coefficient_precision," << precision_name() << '\n';
+    out << "optimization_variant," << OTI_HEAT_VARIANT_NAME << '\n';
+    out << "source_division,"
+        << (config.source_division_per_node ? "per-node" : "hoisted") << '\n';
+    out << "execution_backend," << Kokkos::DefaultExecutionSpace::name() << '\n';
 }
 
 void write_timing_csv(AnalysisConfig const& config, std::vector<PhaseTiming> const& timings)
@@ -609,6 +642,27 @@ void write_timing_csv(AnalysisConfig const& config, std::vector<PhaseTiming> con
     out << std::setprecision(17);
     for (PhaseTiming const& timing : timings) {
         out << timing.name << ',' << timing.seconds << '\n';
+    }
+}
+
+void write_solution_checksum_csv(AnalysisConfig const& config,
+                                 RunResult<OTI> const& result)
+{
+    std::filesystem::create_directories(config.output_dir);
+    std::ofstream out(config.output_dir + "/solution_checksum.csv");
+    out << "coefficient,sum\n";
+    out << std::setprecision(17);
+
+    std::array<double, OTI::ncoeffs> sums{};
+    if (!result.snapshots.empty()) {
+        for (OTI const& value : result.snapshots.back()) {
+            for (int k = 0; k < OTI::ncoeffs; ++k) {
+                sums[static_cast<std::size_t>(k)] += static_cast<double>(value[k]);
+            }
+        }
+    }
+    for (int k = 0; k < OTI::ncoeffs; ++k) {
+        out << k << ',' << sums[static_cast<std::size_t>(k)] << '\n';
     }
 }
 
@@ -643,7 +697,11 @@ int main(int argc, char* argv[])
         std::cout << "Configuration: N=" << config.N
                   << ", nodes=" << mesh.num_nodes
                   << ", elements=" << mesh.num_elements
+                  << ", backend=" << Kokkos::DefaultExecutionSpace::name()
                   << ", oti_storage=" << oti_storage
+                  << ", optimization_variant=" << OTI_HEAT_VARIANT_NAME
+                  << ", source_division="
+                  << (config.source_division_per_node ? "per-node" : "hoisted")
                   << ", coefficient_precision=" << precision_name()
                   << ", dt=" << fixed_dt
                   << ", steps=" << num_steps
@@ -749,11 +807,13 @@ int main(int argc, char* argv[])
 
         write_metrics_csv(config, mesh, fixed_dt, num_steps);
         write_timing_csv(config, timings);
+        write_solution_checksum_csv(config, oti_result);
 
         if (config.run_finite_differences) {
             std::cout << "Wrote " << config.output_dir << "/slice_snapshots.csv\n";
         }
         std::cout << "Wrote " << config.output_dir << "/timing_summary.csv\n";
+        std::cout << "Wrote " << config.output_dir << "/solution_checksum.csv\n";
     }
     Kokkos::finalize();
     return 0;

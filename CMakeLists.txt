@@ -42,6 +42,52 @@ target_compile_definitions(oti_heat_analysis_soa_double PRIVATE OTI_HEAT_SOA)
 add_oti_heat_analysis_target(oti_heat_analysis_soa_float float)
 target_compile_definitions(oti_heat_analysis_soa_float PRIVATE OTI_HEAT_SOA)
 
+function(add_oti_heat_benchmark_variant variant coeff_type)
+    set(target "oti_heat_bench_${variant}_${coeff_type}")
+    add_executable(${target} EXCLUDE_FROM_ALL oti_heat_analysis.cpp)
+    target_include_directories(${target} PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})
+    target_compile_definitions(${target} PRIVATE
+        OTI_ENABLE_KOKKOS
+        OTI_HEAT_COEFF_TYPE=${coeff_type}
+        OTI_HEAT_VARIANT_NAME="${variant}")
+    target_link_libraries(${target} Kokkos::kokkos)
+    target_compile_options(${target} PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
+
+    if(variant STREQUAL "naive")
+        target_compile_definitions(${target} PRIVATE
+            OTI_BENCHMARK_ARITHMETIC_PATH=0
+            OTI_BENCHMARK_NATURAL_ALIGNMENT
+            OTI_HEAT_OPERATOR_CHAINS)
+    elseif(variant STREQUAL "lookup")
+        target_compile_definitions(${target} PRIVATE
+            OTI_BENCHMARK_ARITHMETIC_PATH=1
+            OTI_BENCHMARK_NATURAL_ALIGNMENT
+            OTI_HEAT_OPERATOR_CHAINS)
+    elseif(variant STREQUAL "unrolled")
+        target_compile_definitions(${target} PRIVATE
+            OTI_BENCHMARK_ARITHMETIC_PATH=2
+            OTI_BENCHMARK_NATURAL_ALIGNMENT
+            OTI_HEAT_OPERATOR_CHAINS)
+    elseif(variant STREQUAL "aligned")
+        target_compile_definitions(${target} PRIVATE
+            OTI_BENCHMARK_ARITHMETIC_PATH=2
+            OTI_HEAT_OPERATOR_CHAINS)
+    elseif(variant STREQUAL "fused_aos")
+        target_compile_definitions(${target} PRIVATE OTI_BENCHMARK_ARITHMETIC_PATH=2)
+    elseif(variant STREQUAL "fused_soa")
+        target_compile_definitions(${target} PRIVATE
+            OTI_BENCHMARK_ARITHMETIC_PATH=2
+            OTI_HEAT_SOA)
+    else()
+        message(FATAL_ERROR "Unknown OTI heat benchmark variant: ${variant}")
+    endif()
+endfunction()
+
+foreach(variant naive lookup unrolled aligned fused_aos fused_soa)
+    add_oti_heat_benchmark_variant(${variant} double)
+    add_oti_heat_benchmark_variant(${variant} float)
+endforeach()
+
 # Device-side otinum arithmetic throughput microbenchmark. Runs on whatever
 # Kokkos backend the build targets; point CPP_OTI_LIB_INCLUDE_DIR at different
 # header trees to compare an otinum baseline against a candidate.

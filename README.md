@@ -61,7 +61,45 @@ also creates explicit precision targets for GPU comparisons:
 ```
 
 Each run writes `coefficient_precision` to `run_config.csv` and records the
-base scalar and OTI wall times in `timing_summary.csv`.
+base scalar and OTI wall times in `timing_summary.csv`. It also writes the final
+OTI coefficient sums to `solution_checksum.csv`.
+
+## Library Optimization Study
+
+The heat application is also the end-to-end benchmark for the OTI library
+optimization sequence. CMake provides six cumulative variants in both float
+and double precision:
+
+1. `naive`: no product table, natural alignment, operator chains
+2. `lookup`: runtime product lookup tables
+3. `unrolled`: compile-time-unrolled tables
+4. `aligned`: conditionally aligned AoS coefficients
+5. `fused_aos`: fused timestep operations
+6. `fused_soa`: coefficient-major storage
+
+Collect repeated CUDA runs and save their native outputs:
+
+```sh
+python3 benchmarks/run_heat_optimization_benchmarks.py \
+  --build \
+  --build-dir build-cuda \
+  --runs 5 \
+  --grid-sizes 41 61 \
+  --output ../benchmark_results/heat_optimization_gpu
+```
+
+The collector runs both the normal hoisted source denominator and a
+mathematically equivalent `per-node` mode that exercises OTI division inside
+the timed source kernel. It verifies final solution checksums against the naive
+variant and writes `heat_optimization_results.csv`.
+
+Generate the application-stage, cumulative-speedup, and incremental-speedup
+figures:
+
+```sh
+python3 benchmarks/plot_heat_optimization_benchmarks.py \
+  ../benchmark_results/heat_optimization_gpu
+```
 
 Generate plots:
 
