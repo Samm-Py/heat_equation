@@ -17,3 +17,4 @@ __pycache__/
 *.log
 benchmarks/results/prof_*.txt
 benchmarks/results/optimization_study*/
+benchmarks/results/shape_sweep*/

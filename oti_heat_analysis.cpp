@@ -28,8 +28,22 @@ namespace {
 #define OTI_HEAT_VARIANT_NAME "current"
 #endif
 
+// Number of OTI variables (algebra size). The analysis seeds exactly three
+// physical parameters (diffusivity, source amplitude, source width) into
+// variables 0, 1, 2; any extra variables stay zero, so the three sensitivities
+// are unchanged while the algebra -- and thus the solve cost -- grows with
+// OTI_HEAT_NVARS. Used to sweep the shape <M, 1> for the optimization study.
+// Must be at least 3.
+#ifndef OTI_HEAT_NVARS
+#define OTI_HEAT_NVARS 3
+#endif
+
+#if OTI_HEAT_NVARS < 3
+#error "OTI_HEAT_NVARS must be at least 3 (the analysis seeds three parameters)"
+#endif
+
 using Coeff = OTI_HEAT_COEFF_TYPE;
-using OTI = oti::otinum<3, 1, Coeff>;
+using OTI = oti::otinum<OTI_HEAT_NVARS, 1, Coeff>;
 
 struct AnalysisConfig {
     int N = 21;
