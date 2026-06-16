@@ -5,6 +5,22 @@ gaussian that describes a circle. The code only depends on Kokkos.
 
 This program was mostly written by gemini.
 
+## Prerequisites
+
+The base heat solver depends only on Kokkos. The OTI sensitivity analysis and
+the optimization/sweep benchmarks additionally need:
+
+- **`cpp_oti_lib`** -- the header-only OTI library this project is built to
+  exercise. Clone it and place it beside this repository (so its headers resolve
+  at `../include`), or pass `-DCPP_OTI_LIB_INCLUDE_DIR=/path/to/cpp_oti_lib/include`.
+- **Kokkos** -- a Serial/OpenMP build for CPU runs, or a **CUDA-enabled build
+  compiled for your GPU's compute architecture** for the GPU studies. The
+  "Kokkos GPU" tutorial in `cpp_oti_lib` walks through building one (CUDA
+  toolkit, host compiler, and arch flag).
+- **CMake 3.16+** and a C++17 compiler -- g++ 11 or newer if you build for CUDA,
+  since Kokkos's CUDA backend needs C++20 on the NVCC host pass.
+- **Python 3** with `matplotlib`, for the benchmark runners and plotters.
+
 ## OTI Parameter Analysis
 
 This clone includes an additional `oti_heat_analysis` executable that runs the
