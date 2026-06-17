@@ -55,6 +55,10 @@ python3 benchmarks/plot_heat_optimization_benchmarks.py \
 python3 benchmarks/run_heat_shape_sweep.py --build \
   --build-dir build-cuda --runs 5 --output benchmarks/results/shape_sweep
 python3 benchmarks/plot_heat_shape_sweep.py benchmarks/results/shape_sweep
+
+# 4. Scaling sweep: OTI/base overhead vs problem size (and why it grows)
+benchmarks/run_benchmark.sh
+python3 benchmarks/plot_benchmark.py     # -> oti_overhead.png, oti_overhead_saturation.png
 ```
 
 A CPU (Serial/OpenMP) Kokkos build works for studies 0 and 1; the optimization
@@ -208,6 +212,39 @@ isolates alignment's marginal effect, which is exactly the `incremental_speedup`
 column. For a single optimization flipped in true isolation (everything else
 fixed), use the `bench_*` suite in `cpp_oti_lib` instead: this study is the
 *stacked, end-to-end* view, those are the *isolated per-kernel* view.
+
+## Scaling Sweep and OTI Overhead
+
+This sweep answers a different question: **how does the OTI solve's overhead
+scale with problem size?** It runs the base scalar solve and the
+`otinum<3,1>` OTI solve over a range of grid sizes for all four
+device x precision configurations, using `--skip-fd` so only the two solves are
+timed. The x-axis is total node-updates (`num_nodes * num_steps`); the physical
+`total_time` is fixed and `dt` is CFL-bound, so larger grids do more work.
+
+```sh
+benchmarks/run_benchmark.sh                 # writes results/benchmark_results.csv
+python3 benchmarks/plot_benchmark.py        # medians + the figures below
+```
+
+`plot_benchmark.py` writes `results/benchmark_median.csv` and three figures:
+`wall_vs_complexity.png` (OTI solve time), `oti_overhead.png` (the OTI/base
+ratio), and `oti_overhead_saturation.png` (per-node-update time for base vs
+OTI). The overhead ratio *rises* with problem size and plateaus (~3.2x double,
+~2.8x float on a GTX 1650). The saturation plot shows why: it is the base scalar
+solve being under-utilized at small sizes -- its per-node-update time falls
+steeply as the GPU saturates while the 4x-heavier OTI solve saturates earlier
+and is much flatter, so the ratio grows because the *base* denominator shrinks,
+not because OTI gets more expensive. It plateaus once both are saturated.
+
+To confirm the plateau is device memory bandwidth (not host-device copies), the
+per-kernel profile shows no `cudaMemcpy` in the timed loop and concentrates the
+overhead in the memory-bound stencil gather (`ComputeStiffnessForce`):
+
+```sh
+benchmarks/profile_kernels.sh 61
+python3 benchmarks/parse_kernel_profile.py 61   # writes results/kernel_profile.csv
+```
 
 ## Algebra Size Sweep
 

@@ -114,6 +114,40 @@ def plot(med, ykey, title, fname, ylabel):
     print("wrote", path)
 
 
+def plot_saturation(med, fname):
+    """Per-node-update time for base vs OTI on the GPU. This is the decomposition
+    behind the overhead curve: the base scalar solve is latency-bound at small
+    sizes and its per-node-update time falls steeply as the GPU saturates, while
+    the (4x heavier) OTI solve saturates earlier and is much flatter -- so the
+    OTI/base ratio grows mostly because the *base* denominator shrinks, not
+    because OTI gets more expensive."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for precision, color in (("double", "#d62728"), ("float", "#ff7f0e")):
+        for ykey, ls, tag in (("base_scalar_solve", "--", "base"),
+                              ("oti_solve", "-", "OTI")):
+            xs, ys = series(med, "gpu", precision, ykey)
+            if not xs:
+                continue
+            ns = [y / w * 1e9 for w, y in zip(xs, ys)]
+            ax.plot(xs, ns, color=color, ls=ls, marker="o", markersize=4,
+                    label=f"{tag} {precision}")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("computational complexity  (node-updates = num_nodes x num_steps)")
+    ax.set_ylabel("wall time per node-update (ns)  -- lower = better utilized")
+    ax.set_title("GPU per-node-update time: base saturates late, OTI saturates early")
+    ax.grid(True, which="both", ls=":", alpha=0.5)
+    ax.legend()
+    fig.tight_layout()
+    path = os.path.join(RESULTS, fname)
+    fig.savefig(path, dpi=130)
+    print("wrote", path)
+
+
 def main():
     rows = load()
     med = collapse(rows)
@@ -124,6 +158,7 @@ def main():
          "wall_vs_complexity_base.png", "base scalar solve wall time (s)")
     plot(med, "oti_ratio", "OTI overhead (otinum<3,1>) vs computational complexity",
          "oti_overhead.png", "OTI / base wall-time ratio")
+    plot_saturation(med, "oti_overhead_saturation.png")
 
 
 if __name__ == "__main__":
