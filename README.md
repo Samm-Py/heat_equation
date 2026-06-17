@@ -21,6 +21,47 @@ the optimization/sweep benchmarks additionally need:
   since Kokkos's CUDA backend needs C++20 on the NVCC host pass.
 - **Python 3** with `matplotlib`, for the benchmark runners and plotters.
 
+## Running the studies
+
+This repository is both a standalone heat solver and the **end-to-end benchmark
+for the `cpp_oti_lib` optimization sequence**. The per-optimization *isolation*
+benchmarks live in `cpp_oti_lib` (its "GPU Optimization Benchmark Workflow"
+docs); this solve is where those optimizations are *stacked* in a real
+application (the "Heat Equation: Optimizations Stacked End-to-End" page there).
+
+There are three studies, each detailed in its own section below. After a CUDA
+Kokkos build, the full workflow is:
+
+```sh
+# 0. Build (CUDA Kokkos -- see "Building for a GPU" for the toolchain notes)
+export NVCC_WRAPPER_DEFAULT_COMPILER=g++-11
+cmake -S . -B build-cuda \
+  -DCMAKE_CXX_COMPILER=/path/to/kokkos-cuda-install/bin/nvcc_wrapper \
+  -DCMAKE_PREFIX_PATH=/path/to/kokkos-cuda-install
+cmake --build build-cuda --parallel
+
+# 1. OTI sensitivity analysis: OTI derivatives vs central finite differences
+./build-cuda/oti_heat_analysis oti_analysis_output_cuda_N41 --N 41 --total-time 0.05
+python3 plot_oti_analysis.py oti_analysis_output_cuda_N41
+
+# 2. Optimization study: the six cumulative library optimizations, end-to-end
+python3 benchmarks/run_heat_optimization_benchmarks.py --build \
+  --build-dir build-cuda --runs 5 --grid-sizes 41 \
+  --output ../benchmark_results/heat_optimization_gpu
+python3 benchmarks/plot_heat_optimization_benchmarks.py \
+  ../benchmark_results/heat_optimization_gpu
+
+# 3. Algebra-size sweep: how each optimization's benefit scales with algebra size
+python3 benchmarks/run_heat_shape_sweep.py --build \
+  --build-dir build-cuda --runs 5 --output benchmarks/results/shape_sweep
+python3 benchmarks/plot_heat_shape_sweep.py benchmarks/results/shape_sweep
+```
+
+A CPU (Serial/OpenMP) Kokkos build works for studies 0 and 1; the optimization
+study and the sweep are written for CUDA. Each runner takes `--runs N` and
+pools the runs, and writes a `metadata.json` recording the GPU, driver, and both
+git revisions for reproducibility.
+
 ## OTI Parameter Analysis
 
 This clone includes an additional `oti_heat_analysis` executable that runs the
@@ -144,6 +185,29 @@ figures:
 python3 benchmarks/plot_heat_optimization_benchmarks.py \
   ../benchmark_results/heat_optimization_gpu
 ```
+
+### Testing a specific optimization
+
+`--variants` runs any subset of the six stages instead of the whole chain (and
+`--precisions` / `--source-divisions` narrow further). Each variant is its own
+CMake target `oti_heat_bench_<variant>_<precision>`, runnable directly with the
+analysis CLI:
+
+```sh
+# just the aligned stage, float, end-to-end
+python3 benchmarks/run_heat_optimization_benchmarks.py --build \
+  --build-dir build-cuda --runs 5 --grid-sizes 41 \
+  --variants aligned --precisions float \
+  --output ../benchmark_results/heat_aligned_only
+```
+
+Note the stages are **cumulative**: `aligned` = product tables + unrolling +
+alignment, not alignment alone. To attribute one optimization's contribution,
+run adjacent stages and read the ratio -- e.g. `--variants unrolled aligned`
+isolates alignment's marginal effect, which is exactly the `incremental_speedup`
+column. For a single optimization flipped in true isolation (everything else
+fixed), use the `bench_*` suite in `cpp_oti_lib` instead: this study is the
+*stacked, end-to-end* view, those are the *isolated per-kernel* view.
 
 ## Algebra Size Sweep
 
