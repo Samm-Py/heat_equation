@@ -59,6 +59,14 @@ python3 benchmarks/plot_heat_shape_sweep.py benchmarks/results/shape_sweep
 # 4. Scaling sweep: OTI/base overhead vs problem size (and why it grows)
 benchmarks/run_benchmark.sh
 python3 benchmarks/plot_benchmark.py     # -> oti_overhead.png, oti_overhead_saturation.png
+
+# 5. UQ of the max temperature: one otinum<3,2> solve vs a Monte Carlo reference
+./build-cuda/uq_max_temperature --N 41 --mc-samples 40000 --output uq_output
+python3 uq_moment_analysis.py uq_output   # -> uq_output/uq_results.txt + figure
+
+# 6. Adaptive surrogate reuse: validity gate over a drifting diffusivity
+./build-cuda/uq_adaptive_reuse --output reuse_output
+python3 plot_adaptive_reuse.py reuse_output figures/adaptive_reuse.png
 ```
 
 A CPU (Serial/OpenMP) Kokkos build works for studies 0 and 1; the optimization
@@ -316,3 +324,30 @@ Outputs:
 - `oti_analysis_output/slice_snapshots.csv`
 - `oti_analysis_output/timing_summary.csv`
 - `oti_analysis_output/plots/*.png`
+
+## UQ and Certified Surrogate Reuse
+
+Two examples reuse the sensitivity jet from a single solve as a Taylor
+surrogate; both are documented as worked pages in the `cpp_oti_lib`
+"Numerical Examples" docs section.
+
+**`uq_max_temperature`** propagates input uncertainty through the solve
+analytically: the three physical parameters are given independent normal
+distributions (5% CoV by default; `--cov`), one `otinum<3,2>` solve yields a
+second-order expansion of the peak temperature, and
+`uq_moment_analysis.py` integrates it with Gauss--Hermite quadrature --
+mean, standard deviation, skewness, kurtosis, and a KL divergence against the
+brute-force reference. The Monte Carlo reference (`--mc-samples`, genuine
+re-solves) exists only to validate the method; skewness is the discriminating
+moment (a first-order expansion reports exactly zero).
+
+**`uq_adaptive_reuse`** is the digital-twin pattern: a drifting diffusivity is
+served by anchor jets, and `oti::validity::is_trusted` decides per query
+whether the linear surrogate is still certified within `--tau` (default 0.02)
+or a fresh anchor solve is needed. A dense truth sweep audits the gate (max
+reuse error vs budget, false-positive count); it is not part of the method
+cost. Defaults: 200 queries across alpha in [0.7, 1.6] -> 4 solves,
+0/197 false positives. `plot_adaptive_reuse.py <output> <figure.png>` renders
+the sweep and the error-vs-budget panel.
+
+Both run on any Kokkos backend; CUDA is not required.
