@@ -86,20 +86,22 @@ inline void compute_lumped_mass(const Mesh& mesh, Kokkos::View<double*> M_lumped
 }
 
 // Matrix-free internal force computation: R = K * u
-inline void compute_stiffness_force(const Mesh& mesh, 
-                                   Kokkos::View<const double[8][8]> K_local,
-                                   Kokkos::View<const double*> u,
-                                   Kokkos::View<double*> R) {
-    Kokkos::deep_copy(R, 0.0);
+template <class KView, class UView, class RView>
+inline void compute_stiffness_force(const Mesh& mesh,
+                                   KView K_local,
+                                   UView u,
+                                   RView R) {
+    using Scalar = typename RView::non_const_value_type;
+    Kokkos::deep_copy(R, Scalar(0.0));
     Kokkos::parallel_for("ComputeStiffnessForce", mesh.num_elements, KOKKOS_LAMBDA(int e_idx) {
         int nodes[8];
         mesh.get_element_nodes(e_idx, nodes);
-        
-        double u_elem[8];
+
+        Scalar u_elem[8];
         for (int i = 0; i < 8; ++i) u_elem[i] = u(nodes[i]);
 
         for (int i = 0; i < 8; ++i) {
-            double val = 0.0;
+            Scalar val = 0.0;
             for (int j = 0; j < 8; ++j) {
                 val += K_local(i, j) * u_elem[j];
             }
