@@ -31,6 +31,20 @@ function(add_oti_heat_analysis_target target coeff_type)
     target_compile_options(${target} PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
 endfunction()
 
+# UQ max-temperature example (order-2 OTI jet + Monte Carlo reference).
+add_executable(uq_max_temperature uq_max_temperature.cpp)
+target_include_directories(uq_max_temperature PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})
+target_compile_definitions(uq_max_temperature PRIVATE OTI_ENABLE_KOKKOS OTI_UQ_ORDER=2)
+target_link_libraries(uq_max_temperature Kokkos::kokkos)
+target_compile_options(uq_max_temperature PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
+
+# Adaptive surrogate reuse (validity gate decides reuse-vs-re-solve over a sweep).
+add_executable(uq_adaptive_reuse uq_adaptive_reuse.cpp)
+target_include_directories(uq_adaptive_reuse PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})
+target_compile_definitions(uq_adaptive_reuse PRIVATE OTI_ENABLE_KOKKOS)
+target_link_libraries(uq_adaptive_reuse Kokkos::kokkos)
+target_compile_options(uq_adaptive_reuse PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
+
 add_oti_heat_analysis_target(oti_heat_analysis double)
 add_oti_heat_analysis_target(oti_heat_analysis_double double)
 add_oti_heat_analysis_target(oti_heat_analysis_float float)
