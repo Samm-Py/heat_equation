@@ -38,6 +38,13 @@ target_compile_definitions(uq_max_temperature PRIVATE OTI_ENABLE_KOKKOS OTI_UQ_O
 target_link_libraries(uq_max_temperature Kokkos::kokkos)
 target_compile_options(uq_max_temperature PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
 
+# Jet bank for the GP digital-twin study (JetGP training + audit data).
+add_executable(uq_gp_bank uq_gp_bank.cpp)
+target_include_directories(uq_gp_bank PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})
+target_compile_definitions(uq_gp_bank PRIVATE OTI_ENABLE_KOKKOS)
+target_link_libraries(uq_gp_bank Kokkos::kokkos)
+target_compile_options(uq_gp_bank PRIVATE -O3 ${OTI_CLANG_FOLD_FLAGS})
+
 # Adaptive surrogate reuse (validity gate decides reuse-vs-re-solve over a sweep).
 add_executable(uq_adaptive_reuse uq_adaptive_reuse.cpp)
 target_include_directories(uq_adaptive_reuse PRIVATE ${CPP_OTI_LIB_INCLUDE_DIR})

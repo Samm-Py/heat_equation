@@ -351,3 +351,17 @@ cost. Defaults: 200 queries across alpha in [0.7, 1.6] -> 4 solves,
 the sweep and the error-vs-budget panel.
 
 Both run on any Kokkos backend; CUDA is not required.
+
+**`uq_gp_bank`** exports the *jet bank* behind the GP digital-twin study (the
+"Digital Twin II" page of the `cpp_oti_lib` docs, built on
+[JetGP](https://github.com/Samm-Py/jetgp)): a nested Halton anchor set with
+one full `otinum<3,2>` jet per point (value, gradient, and complete Hessian as
+true derivatives), a uniform Monte Carlo truth set over the (alpha, A, sigma)
+box, and a closed drifting-parameter query path (traversed 1.5x, so late
+queries revisit early territory) with both truth values and jets. Everything a
+derivative-enhanced GP needs to be trained and audited, precomputed so the GP
+experiments reproduce offline without a PDE solver in the loop:
+
+```sh
+./build/uq_gp_bank --output gp_bank   # --N --anchors --mc --queries
+```
