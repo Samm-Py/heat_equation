@@ -25,15 +25,12 @@
 #include <iostream>
 #include <string>
 
-// Compile-time OTI shape.
+// Compile-time OTI shape, injected by CMake (HEAT_OTI_NVARS / HEAT_OTI_ORDER).
 //   OTI_NVARS : number of parameters carried (must be >= the seeded count, 3).
 //   OTI_ORDER : Taylor truncation order. 0 -> plain double solve; 1 -> first
 //               derivatives (sensitivities); higher -> higher-order terms.
-#ifndef OTI_NVARS
-#define OTI_NVARS 3
-#endif
-#ifndef OTI_ORDER
-#define OTI_ORDER 1
+#if !defined(OTI_NVARS) || !defined(OTI_ORDER)
+#error "OTI_NVARS and OTI_ORDER must be defined; configure with -DHEAT_OTI_NVARS / -DHEAT_OTI_ORDER"
 #endif
 
 using Scalar = oti::otinum<OTI_NVARS, OTI_ORDER>;
@@ -48,7 +45,7 @@ enum Param { P_ALPHA = 0, P_AMPLITUDE = 1, P_SIGMA = 2 };
 double sensitivity(Scalar const& x, int p) {
     typename Scalar::alpha_type a{};
     a[p] = 1;
-    return static_cast<double>(x.partial(a));
+    return x.partial(a);
 }
 
 // Copy the real part of a Scalar host field into a plain double host buffer so
@@ -56,7 +53,7 @@ double sensitivity(Scalar const& x, int p) {
 template <class HostView>
 void extract_real(HostView const& src, Kokkos::View<double*, Kokkos::HostSpace> dst) {
     for (int i = 0; i < static_cast<int>(src.extent(0)); ++i) {
-        dst(i) = static_cast<double>(src(i).real());
+        dst(i) = src(i).real();
     }
 }
 
