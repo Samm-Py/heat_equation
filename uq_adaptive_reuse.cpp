@@ -148,29 +148,52 @@ int main(int argc, char* argv[])
         for (int i = 0; i < cfg.n_queries; ++i)
             truth[i] = solve_final_field<double>(cfg, aq[i], cfg.amplitude0, cfg.sigma0, dt)[sensor];
 
-        // adaptive reuse: anchor jet + on-the-fly validity gate
+        // Adaptive reuse: an ATLAS of anchor jets + the on-the-fly validity
+        // gate. Every anchor is kept and each query is served by the nearest
+        // one; a certified twin must never re-solve territory it has already
+        // certified, so a new solve happens only when NO stored anchor's
+        // trusted region covers the query. (On this monotone sweep the nearest
+        // stored anchor is always the newest, so the atlas behaves identically
+        // to holding a single anchor -- but on a query stream that revisits
+        // old territory the atlas keeps reusing where a single-anchor twin
+        // would pointlessly re-solve. Jets are 10 doubles each; keeping them
+        // all is free.)
         std::ofstream sw(cfg.output_dir + "/reuse_sweep.csv");
         sw << std::setprecision(10) << "alpha,truth,pred,abs_err,budget,reused,is_anchor,anchor_alpha\n";
         int solves = 0, reused = 0, false_pos = 0;
         double max_reuse_err = 0.0;
-        double anchor_alpha = aq[0];
-        OTI jet;
-        auto reseat = [&](double a) {
-            jet = solve_final_field<OTI>(cfg, OTI::variable(0, a), OTI::variable(1, cfg.amplitude0),
-                                         OTI::variable(2, cfg.sigma0), dt)[sensor];
-            anchor_alpha = a; ++solves;
+        std::vector<double> atlas_alpha;
+        std::vector<OTI> atlas_jet;
+        auto add_anchor = [&](double a) {
+            atlas_jet.push_back(solve_final_field<OTI>(cfg, OTI::variable(0, a),
+                                                       OTI::variable(1, cfg.amplitude0),
+                                                       OTI::variable(2, cfg.sigma0), dt)[sensor]);
+            atlas_alpha.push_back(a);
+            ++solves;
+            return atlas_jet.size() - 1;
         };
-        reseat(aq[0]);
+        auto nearest_anchor = [&](double a) {
+            std::size_t best = 0;
+            for (std::size_t k = 1; k < atlas_alpha.size(); ++k)
+                if (std::abs(a - atlas_alpha[k]) < std::abs(a - atlas_alpha[best])) best = k;
+            return best;
+        };
+        add_anchor(aq[0]);
         for (int i = 0; i < cfg.n_queries; ++i) {
-            oti::detail::array<double, 3> h{aq[i] - anchor_alpha, 0.0, 0.0};
+            std::size_t k = nearest_anchor(aq[i]);
+            oti::detail::array<double, 3> h{aq[i] - atlas_alpha[k], 0.0, 0.0};
             bool is_anchor = false;
-            if (!val::is_trusted(jet, h, cfg.tau, 0.0, 1)) { reseat(aq[i]); h = {0.0, 0.0, 0.0}; is_anchor = true; }
-            double pred = val::evaluate(jet, h, 1);
-            double budget = cfg.tau * std::abs(jet[0]);
+            if (!val::is_trusted(atlas_jet[k], h, cfg.tau, 0.0, 1)) {
+                k = add_anchor(aq[i]);
+                h = {0.0, 0.0, 0.0};
+                is_anchor = true;
+            }
+            double pred = val::evaluate(atlas_jet[k], h, 1);
+            double budget = cfg.tau * std::abs(atlas_jet[k][0]);
             double err = std::abs(pred - truth[i]);
             if (!is_anchor) { ++reused; max_reuse_err = std::max(max_reuse_err, err); if (err > budget) ++false_pos; }
             sw << aq[i] << ',' << truth[i] << ',' << pred << ',' << err << ',' << budget << ','
-               << (is_anchor ? 0 : 1) << ',' << (is_anchor ? 1 : 0) << ',' << anchor_alpha << '\n';
+               << (is_anchor ? 0 : 1) << ',' << (is_anchor ? 1 : 0) << ',' << atlas_alpha[k] << '\n';
         }
 
         std::cout << "queries=" << cfg.n_queries << "  PDE solves (anchors)=" << solves
